@@ -8,7 +8,7 @@ use zed_extension_api::{
 };
 
 const ADAPTER_NAME: &str = "autohotkey";
-const GITHUB_REPO: &str = "helsmy/autohotkey-debug-adapter";
+const GITHUB_REPO: &str = "alfredomtx/autohotkey-debug-adapter";
 
 fn request_type_from_config(
     config: &serde_json::Value,
@@ -170,6 +170,15 @@ impl AutoHotkeyDebugger {
 
         let request = Self::parse_request_kind(&config.config)?;
 
+        // Parse config to inject required fields
+        let mut config_json: serde_json::Value = serde_json::from_str(&config.config)
+            .map_err(|e| format!("Failed to parse config: {}", e))?;
+
+        // Inject port if not specified (required by debug adapter)
+        if config_json.get("port").is_none() {
+            config_json["port"] = serde_json::json!(9005);
+        }
+
         Ok(DebugAdapterBinary {
             command: Some(ahk_exe),
             arguments: vec![adapter_script],
@@ -177,7 +186,7 @@ impl AutoHotkeyDebugger {
             cwd: Some(worktree.root_path()),
             connection: None,
             request_args: StartDebuggingRequestArguments {
-                configuration: config.config,
+                configuration: config_json.to_string(),
                 request,
             },
         })
@@ -242,6 +251,7 @@ impl zed::Extension for AutoHotkeyDebugger {
                     "cwd": launch.cwd,
                     "args": launch.args,
                     "stopOnEntry": config.stop_on_entry.unwrap_or(false),
+                    "port": 9005,
                 })
             }
             DebugRequest::Attach(_) => {
