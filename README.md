@@ -17,6 +17,16 @@ Debug AutoHotkey v1 scripts in Zed using the Debug Adapter Protocol.
 
 ## Installation
 
+### From source (dev mode)
+
+1. Clone this repository
+2. Open Zed
+3. Open the command palette (`Ctrl+Shift+P`)
+4. Run "zed: install dev extension"
+5. Select the cloned repository folder
+
+### From Extensions panel (once published)
+
 1. Open Zed
 2. Open the Extensions panel (`Ctrl+Shift+X`)
 3. Search for "AutoHotkey Debugger"
