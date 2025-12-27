@@ -270,3 +270,347 @@ impl zed::Extension for AutoHotkeyDebugger {
 }
 
 zed::register_extension!(AutoHotkeyDebugger);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zed_extension_api::{AttachRequest, Extension, LaunchRequest};
+
+    // ==================== request_type_from_config tests ====================
+
+    #[test]
+    fn request_type_from_config_returns_launch_for_launch_request() {
+        // Arrange
+        let config = serde_json::json!({"request": "launch"});
+
+        // Act
+        let result = request_type_from_config(&config);
+
+        // Assert
+        assert!(matches!(
+            result,
+            Ok(StartDebuggingRequestArgumentsRequest::Launch)
+        ));
+    }
+
+    #[test]
+    fn request_type_from_config_returns_attach_for_attach_request() {
+        // Arrange
+        let config = serde_json::json!({"request": "attach"});
+
+        // Act
+        let result = request_type_from_config(&config);
+
+        // Assert
+        assert!(matches!(
+            result,
+            Ok(StartDebuggingRequestArgumentsRequest::Attach)
+        ));
+    }
+
+    #[test]
+    fn request_type_from_config_returns_error_for_invalid_request() {
+        // Arrange
+        let config = serde_json::json!({"request": "invalid"});
+
+        // Act
+        let result = request_type_from_config(&config);
+
+        // Assert
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid request type"));
+    }
+
+    #[test]
+    fn request_type_from_config_defaults_to_launch_when_missing() {
+        // Arrange
+        let config = serde_json::json!({});
+
+        // Act
+        let result = request_type_from_config(&config);
+
+        // Assert
+        assert!(matches!(
+            result,
+            Ok(StartDebuggingRequestArgumentsRequest::Launch)
+        ));
+    }
+
+    #[test]
+    fn request_type_from_config_defaults_to_launch_when_null() {
+        // Arrange
+        let config = serde_json::json!({"request": null});
+
+        // Act
+        let result = request_type_from_config(&config);
+
+        // Assert
+        assert!(matches!(
+            result,
+            Ok(StartDebuggingRequestArgumentsRequest::Launch)
+        ));
+    }
+
+    // ==================== validate_adapter_name tests ====================
+
+    #[test]
+    fn validate_adapter_name_accepts_autohotkey() {
+        // Arrange
+        let name = "autohotkey";
+
+        // Act
+        let result = validate_adapter_name(name);
+
+        // Assert
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn validate_adapter_name_rejects_other_names() {
+        // Arrange
+        let name = "python";
+
+        // Act
+        let result = validate_adapter_name(name);
+
+        // Assert
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unsupported adapter"));
+    }
+
+    #[test]
+    fn validate_adapter_name_rejects_empty_string() {
+        // Arrange
+        let name = "";
+
+        // Act
+        let result = validate_adapter_name(name);
+
+        // Assert
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn validate_adapter_name_is_case_sensitive() {
+        // Arrange
+        let name = "AutoHotkey";
+
+        // Act
+        let result = validate_adapter_name(name);
+
+        // Assert
+        assert!(result.is_err());
+    }
+
+    // ==================== parse_request_kind tests ====================
+
+    #[test]
+    fn parse_request_kind_parses_valid_json() {
+        // Arrange
+        let json = r#"{"request": "launch"}"#;
+
+        // Act
+        let result = AutoHotkeyDebugger::parse_request_kind(json);
+
+        // Assert
+        assert!(matches!(
+            result,
+            Ok(StartDebuggingRequestArgumentsRequest::Launch)
+        ));
+    }
+
+    #[test]
+    fn parse_request_kind_returns_error_for_invalid_json() {
+        // Arrange
+        let json = "not valid json";
+
+        // Act
+        let result = AutoHotkeyDebugger::parse_request_kind(json);
+
+        // Assert
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Failed to parse config JSON"));
+    }
+
+    #[test]
+    fn parse_request_kind_handles_empty_json_object() {
+        // Arrange
+        let json = "{}";
+
+        // Act
+        let result = AutoHotkeyDebugger::parse_request_kind(json);
+
+        // Assert
+        assert!(matches!(
+            result,
+            Ok(StartDebuggingRequestArgumentsRequest::Launch)
+        ));
+    }
+
+    // ==================== Path construction tests ====================
+
+    #[test]
+    fn versioned_dir_contains_version() {
+        // Arrange
+        let debugger = AutoHotkeyDebugger::new();
+        let version = "1.2.3";
+
+        // Act
+        let result = debugger.versioned_dir(version);
+
+        // Assert
+        assert!(result.contains("autohotkey_1.2.3"));
+    }
+
+    #[test]
+    fn ahk_exe_path_contains_expected_components() {
+        // Arrange
+        let debugger = AutoHotkeyDebugger::new();
+        let version = "1.0.0";
+
+        // Act
+        let result = debugger.ahk_exe_path(version);
+
+        // Assert
+        assert!(result.contains("extension"));
+        assert!(result.contains("bin"));
+        assert!(result.contains("AutoHotkey.exe"));
+    }
+
+    #[test]
+    fn adapter_script_path_contains_expected_components() {
+        // Arrange
+        let debugger = AutoHotkeyDebugger::new();
+        let version = "1.0.0";
+
+        // Act
+        let result = debugger.adapter_script_path(version);
+
+        // Assert
+        assert!(result.contains("extension"));
+        assert!(result.contains("ahkdbg"));
+        assert!(result.contains("debugAdapter.ahk"));
+    }
+
+    // ==================== Filesystem tests using tempfile ====================
+
+    #[test]
+    fn dap_config_to_scenario_returns_error_for_missing_program() {
+        // Arrange
+        let mut debugger = AutoHotkeyDebugger::new();
+        let config = DebugConfig {
+            adapter: "autohotkey".to_string(),
+            label: "Test".to_string(),
+            request: DebugRequest::Launch(LaunchRequest {
+                program: "/nonexistent/path/script.ahk".to_string(),
+                cwd: None,
+                args: vec![],
+                envs: vec![],
+            }),
+            stop_on_entry: None,
+        };
+
+        // Act
+        let result = debugger.dap_config_to_scenario(config);
+
+        // Assert
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Script file not found"));
+    }
+
+    #[test]
+    fn dap_config_to_scenario_returns_error_for_attach_mode() {
+        // Arrange
+        let mut debugger = AutoHotkeyDebugger::new();
+        let config = DebugConfig {
+            adapter: "autohotkey".to_string(),
+            label: "Test".to_string(),
+            request: DebugRequest::Attach(AttachRequest { process_id: None }),
+            stop_on_entry: None,
+        };
+
+        // Act
+        let result = debugger.dap_config_to_scenario(config);
+
+        // Assert
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("does not support attach mode"));
+    }
+
+    #[test]
+    fn dap_config_to_scenario_succeeds_with_existing_file() {
+        // Arrange
+        let temp_dir = tempfile::tempdir().unwrap();
+        let script_path = temp_dir.path().join("test.ahk");
+        std::fs::write(&script_path, "MsgBox Hello").unwrap();
+
+        let mut debugger = AutoHotkeyDebugger::new();
+        let config = DebugConfig {
+            adapter: "autohotkey".to_string(),
+            label: "Test".to_string(),
+            request: DebugRequest::Launch(LaunchRequest {
+                program: script_path.to_string_lossy().to_string(),
+                cwd: None,
+                args: vec![],
+                envs: vec![],
+            }),
+            stop_on_entry: Some(true),
+        };
+
+        // Act
+        let result = debugger.dap_config_to_scenario(config);
+
+        // Assert
+        assert!(result.is_ok());
+        let scenario = result.unwrap();
+        assert_eq!(scenario.adapter, "autohotkey");
+        assert!(scenario.config.contains("\"stopOnEntry\":true"));
+    }
+
+    #[test]
+    fn dap_config_to_scenario_allows_empty_program_path() {
+        // Arrange
+        let mut debugger = AutoHotkeyDebugger::new();
+        let config = DebugConfig {
+            adapter: "autohotkey".to_string(),
+            label: "Test".to_string(),
+            request: DebugRequest::Launch(LaunchRequest {
+                program: "".to_string(),
+                cwd: None,
+                args: vec![],
+                envs: vec![],
+            }),
+            stop_on_entry: None,
+        };
+
+        // Act
+        let result = debugger.dap_config_to_scenario(config);
+
+        // Assert
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn dap_config_to_scenario_rejects_wrong_adapter() {
+        // Arrange
+        let mut debugger = AutoHotkeyDebugger::new();
+        let config = DebugConfig {
+            adapter: "python".to_string(),
+            label: "Test".to_string(),
+            request: DebugRequest::Launch(LaunchRequest {
+                program: "".to_string(),
+                cwd: None,
+                args: vec![],
+                envs: vec![],
+            }),
+            stop_on_entry: None,
+        };
+
+        // Act
+        let result = debugger.dap_config_to_scenario(config);
+
+        // Assert
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unsupported adapter"));
+    }
+}

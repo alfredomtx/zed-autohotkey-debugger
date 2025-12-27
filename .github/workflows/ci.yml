@@ -18,3 +18,4 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --target wasm32-wasip1 -- -D warnings
       - run: cargo check --target wasm32-wasip1
+      - run: cargo test
