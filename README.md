@@ -82,7 +82,7 @@ Then open any `.ahk` file and start debugging with `F5` or via the Debug panel.
 
 ## Credits
 
-This extension wraps [helsmy/autohotkey-debug-adapter](https://github.com/helsmy/autohotkey-debug-adapter), which provides the underlying Debug Adapter Protocol implementation.
+This extension wraps [alfredomtx/autohotkey-debug-adapter](https://github.com/alfredomtx/autohotkey-debug-adapter), a fork of [helsmy/autohotkey-debug-adapter](https://github.com/helsmy/autohotkey-debug-adapter) with DAP protocol fixes for Zed compatibility.
 
 ## License
 

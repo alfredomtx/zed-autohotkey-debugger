@@ -24,7 +24,7 @@ No automated tests. Manual testing in Zed:
 
 ## Architecture
 
-This is a **Zed editor debug extension** written in Rust that compiles to WASM. It wraps [helsmy/autohotkey-debug-adapter](https://github.com/helsmy/autohotkey-debug-adapter) to provide DAP integration.
+This is a **Zed editor debug extension** written in Rust that compiles to WASM. It wraps [alfredomtx/autohotkey-debug-adapter](https://github.com/alfredomtx/autohotkey-debug-adapter) (a fork with DAP fixes) to provide DAP integration.
 
 ### Communication Model
 
