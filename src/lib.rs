@@ -12,6 +12,30 @@ const GITHUB_REPO: &str = "helsmy/autohotkey-debug-adapter";
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_PORT: u16 = 9005;
 
+fn request_type_from_config(
+    config: &serde_json::Value,
+) -> Result<StartDebuggingRequestArgumentsRequest, String> {
+    match config.get("request").and_then(|v| v.as_str()) {
+        Some("launch") => Ok(StartDebuggingRequestArgumentsRequest::Launch),
+        Some("attach") => Ok(StartDebuggingRequestArgumentsRequest::Attach),
+        Some(other) => Err(format!(
+            "Invalid request type '{}', expected 'launch' or 'attach'",
+            other
+        )),
+        None => Ok(StartDebuggingRequestArgumentsRequest::Launch),
+    }
+}
+
+fn validate_adapter_name(name: &str) -> Result<(), String> {
+    if name != ADAPTER_NAME {
+        return Err(format!(
+            "Unsupported adapter '{}', expected '{}'",
+            name, ADAPTER_NAME
+        ));
+    }
+    Ok(())
+}
+
 struct AutoHotkeyDebugger {
     cached_version: OnceLock<String>,
 }
@@ -159,15 +183,7 @@ impl AutoHotkeyDebugger {
         let config: serde_json::Value = serde_json::from_str(config_json)
             .map_err(|e| format!("Failed to parse config JSON: {}", e))?;
 
-        match config.get("request").and_then(|v| v.as_str()) {
-            Some("launch") => Ok(StartDebuggingRequestArgumentsRequest::Launch),
-            Some("attach") => Ok(StartDebuggingRequestArgumentsRequest::Attach),
-            Some(other) => Err(format!(
-                "Invalid request type '{}', expected 'launch' or 'attach'",
-                other
-            )),
-            None => Ok(StartDebuggingRequestArgumentsRequest::Launch),
-        }
+        request_type_from_config(&config)
     }
 }
 
@@ -185,12 +201,7 @@ impl zed::Extension for AutoHotkeyDebugger {
         user_provided_debug_adapter_path: Option<String>,
         worktree: &Worktree,
     ) -> Result<DebugAdapterBinary, String> {
-        if adapter_name != ADAPTER_NAME {
-            return Err(format!(
-                "Unsupported adapter '{}', expected '{}'",
-                adapter_name, ADAPTER_NAME
-            ));
-        }
+        validate_adapter_name(&adapter_name)?;
 
         let version = self.ensure_adapter_installed()?;
         self.build_binary(&version, config, user_provided_debug_adapter_path, worktree)
@@ -201,31 +212,13 @@ impl zed::Extension for AutoHotkeyDebugger {
         adapter_name: String,
         config: serde_json::Value,
     ) -> Result<StartDebuggingRequestArgumentsRequest, String> {
-        if adapter_name != ADAPTER_NAME {
-            return Err(format!(
-                "Unsupported adapter '{}', expected '{}'",
-                adapter_name, ADAPTER_NAME
-            ));
-        }
+        validate_adapter_name(&adapter_name)?;
 
-        match config.get("request").and_then(|v| v.as_str()) {
-            Some("launch") => Ok(StartDebuggingRequestArgumentsRequest::Launch),
-            Some("attach") => Ok(StartDebuggingRequestArgumentsRequest::Attach),
-            Some(other) => Err(format!(
-                "Invalid request type '{}', expected 'launch' or 'attach'",
-                other
-            )),
-            None => Ok(StartDebuggingRequestArgumentsRequest::Launch),
-        }
+        request_type_from_config(&config)
     }
 
     fn dap_config_to_scenario(&mut self, config: DebugConfig) -> Result<DebugScenario, String> {
-        if config.adapter != ADAPTER_NAME {
-            return Err(format!(
-                "Unsupported adapter '{}', expected '{}'",
-                config.adapter, ADAPTER_NAME
-            ));
-        }
+        validate_adapter_name(&config.adapter)?;
 
         let scenario_config = match &config.request {
             DebugRequest::Launch(launch) => {
