@@ -3,7 +3,7 @@ name = "AutoHotkey Debugger"
 version = "0.1.0"
 schema_version = 1
 authors = ["Alfredo Carrillo"]
-description = "Debug AutoHotkey v1 scripts using helsmy's debug adapter"
+description = "Debug AutoHotkey v1 scripts with breakpoints, stepping, and variable inspection"
 repository = "https://github.com/alfredomtx/zed-autohotkey-debugger"
 
 [debug_adapters.autohotkey]
