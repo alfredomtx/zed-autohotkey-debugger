@@ -1,0 +1,16 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: huacnlee/zed-extension-action@v1
+        with:
+          extension-name: autohotkey-debugger
+        env:
+          COMMITTER_TOKEN: ${{ secrets.COMMITTER_TOKEN }}
