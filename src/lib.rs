@@ -1,16 +1,14 @@
-use std::{env, net::Ipv4Addr, path::Path, sync::OnceLock, time::Duration};
+use std::{env, path::Path, sync::OnceLock};
 
 use zed_extension_api::{
     self as zed, download_file, latest_github_release, serde_json, DebugAdapterBinary, DebugConfig,
     DebugRequest, DebugScenario, DebugTaskDefinition, DownloadedFileType, GithubReleaseAsset,
     GithubReleaseOptions, StartDebuggingRequestArguments, StartDebuggingRequestArgumentsRequest,
-    TcpArguments, Worktree,
+    Worktree,
 };
 
 const ADAPTER_NAME: &str = "autohotkey";
 const GITHUB_REPO: &str = "helsmy/autohotkey-debug-adapter";
-const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
-const DEFAULT_PORT: u16 = 9005;
 
 fn request_type_from_config(
     config: &serde_json::Value,
@@ -170,22 +168,14 @@ impl AutoHotkeyDebugger {
             ));
         }
 
-        let port = DEFAULT_PORT;
-
-        let connection = TcpArguments {
-            port,
-            host: Ipv4Addr::LOCALHOST.to_bits(),
-            timeout: Some(DEFAULT_TIMEOUT.as_millis() as u64),
-        };
-
         let request = Self::parse_request_kind(&config.config)?;
 
         Ok(DebugAdapterBinary {
             command: Some(ahk_exe),
-            arguments: vec![adapter_script, format!("--port={}", port)],
+            arguments: vec![adapter_script],
             envs: vec![],
             cwd: Some(worktree.root_path()),
-            connection: Some(connection),
+            connection: None,
             request_args: StartDebuggingRequestArguments {
                 configuration: config.config,
                 request,
@@ -239,13 +229,11 @@ impl zed::Extension for AutoHotkeyDebugger {
         let scenario_config = match &config.request {
             DebugRequest::Launch(launch) => {
                 // Validate program file exists
-                if let Some(program) = launch.program.as_ref() {
-                    if !Path::new(program).exists() {
-                        return Err(format!(
-                            "Script file not found: '{}'. Check the 'program' path in your debug configuration.",
-                            program
-                        ));
-                    }
+                if !launch.program.is_empty() && !Path::new(&launch.program).exists() {
+                    return Err(format!(
+                        "Script file not found: '{}'. Check the 'program' path in your debug configuration.",
+                        launch.program
+                    ));
                 }
 
                 serde_json::json!({
