@@ -154,6 +154,22 @@ impl AutoHotkeyDebugger {
         let ahk_exe = user_provided_path.unwrap_or_else(|| self.ahk_exe_path(version));
         let adapter_script = self.adapter_script_path(version);
 
+        // Validate bundled AHK runtime exists
+        if !Path::new(&ahk_exe).exists() {
+            return Err(format!(
+                "Debug adapter AutoHotkey.exe not found at '{}'. Try reinstalling the extension.",
+                ahk_exe
+            ));
+        }
+
+        // Validate adapter script exists
+        if !Path::new(&adapter_script).exists() {
+            return Err(format!(
+                "Debug adapter script not found at '{}'. Try reinstalling the extension.",
+                adapter_script
+            ));
+        }
+
         let port = DEFAULT_PORT;
 
         let connection = TcpArguments {
@@ -222,6 +238,16 @@ impl zed::Extension for AutoHotkeyDebugger {
 
         let scenario_config = match &config.request {
             DebugRequest::Launch(launch) => {
+                // Validate program file exists
+                if let Some(program) = launch.program.as_ref() {
+                    if !Path::new(program).exists() {
+                        return Err(format!(
+                            "Script file not found: '{}'. Check the 'program' path in your debug configuration.",
+                            program
+                        ));
+                    }
+                }
+
                 serde_json::json!({
                     "request": "launch",
                     "program": launch.program,
