@@ -1,0 +1,151 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": "1",
+        "title": "Initialize Rust project structure",
+        "description": "Create the foundational Rust project with Cargo.toml configured for Zed extension development and extension.toml manifest registering the debug adapter.",
+        "details": "1. Create project directory `zed-autohotkey-debugger`\n2. Create `Cargo.toml` with:\n   - `[lib]` section with `crate-type = [\"cdylib\"]`\n   - `zed_extension_api = \"0.7\"` dependency (latest stable)\n   - Package metadata (name, version, edition = \"2024\")\n3. Create `extension.toml` with:\n   ```toml\n   id = \"autohotkey-debugger\"\n   name = \"AutoHotkey Debugger\"\n   version = \"0.1.0\"\n   schema_version = 1\n   authors = [\"Your Name\"]\n   description = \"Debug AutoHotkey v1 scripts using helsmy's debug adapter\"\n   repository = \"https://github.com/YOUR_USERNAME/zed-autohotkey-debugger\"\n   \n   [debug_adapters.autohotkey]\n   ```\n4. Create `src/lib.rs` with skeleton Extension trait implementation:\n   ```rust\n   use zed_extension_api as zed;\n   \n   struct AutoHotkeyDebugger;\n   \n   impl zed::Extension for AutoHotkeyDebugger {\n       fn new() -> Self { Self }\n   }\n   \n   zed::register_extension!(AutoHotkeyDebugger);\n   ```\n5. Create `.gitignore` for Rust projects (target/, Cargo.lock for lib)",
+        "testStrategy": "Run `cargo check` to verify the project compiles. Verify extension.toml is valid TOML. Attempt to install as dev extension in Zed (should fail gracefully with 'not implemented' error since get_dap_binary is not yet implemented).",
+        "priority": "high",
+        "dependencies": [],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2025-12-27T01:10:41.540Z"
+      },
+      {
+        "id": "2",
+        "title": "Create JSON schema for debug configuration",
+        "description": "Define the JSON schema for debug.json configuration that provides autocomplete and validation for users configuring the AutoHotkey debugger.",
+        "details": "1. Create `debug_adapter_schemas/autohotkey.json` with JSON Schema:\n   ```json\n   {\n     \"$schema\": \"http://json-schema.org/draft-07/schema#\",\n     \"type\": \"object\",\n     \"required\": [\"program\"],\n     \"properties\": {\n       \"program\": {\n         \"type\": \"string\",\n         \"description\": \"Path to the .ahk script to debug\",\n         \"default\": \"${workspaceFolder}/script.ahk\"\n       },\n       \"runtime\": {\n         \"type\": \"string\",\n         \"description\": \"Path to AutoHotkey.exe\",\n         \"default\": \"C:\\\\Program Files\\\\AutoHotkey\\\\AutoHotkey.exe\"\n       },\n       \"port\": {\n         \"type\": [\"integer\", \"string\"],\n         \"description\": \"DBGp port (integer) or port range (e.g., '9000-9010')\",\n         \"default\": 9005\n       },\n       \"stopOnEntry\": {\n         \"type\": \"boolean\",\n         \"description\": \"Stop at the first line\",\n         \"default\": true\n       },\n       \"args\": {\n         \"type\": \"array\",\n         \"items\": { \"type\": \"string\" },\n         \"description\": \"Command-line arguments for the script\",\n         \"default\": []\n       }\n     }\n   }\n   ```\n2. Update `extension.toml` to reference the schema:\n   ```toml\n   [debug_adapters.autohotkey]\n   schema_path = \"debug_adapter_schemas/autohotkey.json\"\n   ```",
+        "testStrategy": "Validate JSON schema syntax with a JSON schema validator. Test that Zed provides autocomplete when editing debug.json after installing the dev extension.",
+        "priority": "high",
+        "dependencies": [
+          "1"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2025-12-27T01:12:05.398Z"
+      },
+      {
+        "id": "3",
+        "title": "Implement GitHub release download for debugAdapter.exe",
+        "description": "Implement the core logic to download the debugAdapter.exe binary from helsmy's GitHub releases, with caching to avoid re-downloading on every debug session.",
+        "details": "1. Add HTTP client usage in `src/lib.rs`:\n   ```rust\n   use zed_extension_api::{self as zed, http_client};\n   use std::fs;\n   ```\n2. Implement helper function to get cache directory:\n   ```rust\n   fn adapter_cache_dir(&self) -> Result<PathBuf, String> {\n       let dir = std::env::current_dir()\n           .map_err(|e| e.to_string())?\n           .join(\".zed-ahk-debug\");\n       fs::create_dir_all(&dir).map_err(|e| e.to_string())?;\n       Ok(dir)\n   }\n   ```\n3. Implement download function:\n   - GitHub API URL: `https://api.github.com/repos/helsmy/autohotkey-debug-adapter/releases/latest`\n   - Parse JSON response to find asset named `debugAdapter.exe` or containing `.vsix`\n   - If `.vsix`, download and extract (it's a ZIP file) to get `bin/debugAdapter.exe`\n   - Direct release URL pattern: `https://github.com/helsmy/autohotkey-debug-adapter/releases/download/{version}/debugAdapter.exe`\n4. Implement version checking:\n   - Store downloaded version in `.zed-ahk-debug/version.txt`\n   - Check if cached version matches latest before downloading\n   - Only re-download when version differs\n5. Handle download errors gracefully with clear messages",
+        "testStrategy": "Unit test the download logic by mocking HTTP responses. Integration test by running the download and verifying the binary exists at the expected path. Test caching by running twice and verifying no re-download on second run.",
+        "priority": "high",
+        "dependencies": [
+          "1"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2025-12-27T01:30:59.825Z"
+      },
+      {
+        "id": "4",
+        "title": "Implement get_dap_binary method",
+        "description": "Implement the get_dap_binary method on the Extension trait to return the debugAdapter.exe binary with proper arguments and environment.",
+        "details": "1. Implement `get_dap_binary` in `src/lib.rs`:\n   ```rust\n   fn get_dap_binary(\n       &mut self,\n       _adapter_name: String,\n       config: zed::DebugTaskDefinition,\n       user_provided_path: Option<String>,\n       worktree: &zed::Worktree,\n   ) -> Result<zed::DebugAdapterBinary, String> {\n       // 1. Get adapter binary path\n       let binary_path = match user_provided_path {\n           Some(path) => PathBuf::from(path),\n           None => self.download_or_get_cached_adapter()?,\n       };\n       \n       // 2. Extract config values\n       let config_obj = config.config;\n       let port = config_obj.get(\"port\")\n           .and_then(|v| v.as_i64())\n           .unwrap_or(9005);\n       \n       // 3. Return DebugAdapterBinary\n       Ok(zed::DebugAdapterBinary {\n           command: binary_path.to_string_lossy().to_string(),\n           arguments: vec![\"--port\".to_string(), port.to_string()],\n           env: Default::default(),\n           cwd: Some(worktree.root_path().to_string()),\n       })\n   }\n   ```\n2. Handle the case where adapter name doesn't match \"autohotkey\"\n3. Add logging for debugging purposes",
+        "testStrategy": "Install as dev extension in Zed. Create a test .ahk file with debug.json. Start debugging and verify the adapter process starts (check Task Manager for debugAdapter.exe). Verify correct port is passed via command line arguments.",
+        "priority": "high",
+        "dependencies": [
+          "2",
+          "3"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2025-12-27T01:36:04.950Z"
+      },
+      {
+        "id": "5",
+        "title": "Implement dap_request_kind method",
+        "description": "Implement the dap_request_kind method to support both launch and attach debug modes.",
+        "details": "1. Implement `dap_request_kind` in `src/lib.rs`:\n   ```rust\n   fn dap_request_kind(\n       &mut self,\n       _adapter_name: String,\n       config: serde_json::Value,\n   ) -> Result<zed::DapRequestKind, String> {\n       // Check if config specifies attach mode\n       let request = config.get(\"request\")\n           .and_then(|v| v.as_str())\n           .unwrap_or(\"launch\");\n       \n       match request {\n           \"attach\" => Ok(zed::DapRequestKind::Attach),\n           \"launch\" | _ => Ok(zed::DapRequestKind::Launch),\n       }\n   }\n   ```\n2. Update JSON schema to include `request` property:\n   ```json\n   \"request\": {\n     \"type\": \"string\",\n     \"enum\": [\"launch\", \"attach\"],\n     \"description\": \"Launch a new process or attach to existing\",\n     \"default\": \"launch\"\n   }\n   ```",
+        "testStrategy": "Test launch mode: Start debugging a fresh script, verify it launches AutoHotkey.exe with debugger attached. Test attach mode (Phase 2): Start an AHK script with /Debug flag manually, then attach via Zed.",
+        "priority": "high",
+        "dependencies": [
+          "4"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2025-12-27T01:36:04.953Z"
+      },
+      {
+        "id": "6",
+        "title": "Implement dap_config_to_scenario method",
+        "description": "Implement the dap_config_to_scenario method to convert generic debug configurations into concrete debug scenarios for the AutoHotkey adapter.",
+        "details": "1. Implement `dap_config_to_scenario` in `src/lib.rs`:\n   ```rust\n   fn dap_config_to_scenario(\n       &mut self,\n       config: zed::DebugConfig,\n   ) -> Result<zed::DebugScenario, String> {\n       let program = config.config.get(\"program\")\n           .and_then(|v| v.as_str())\n           .ok_or(\"'program' field is required\")?;\n       \n       let runtime = config.config.get(\"runtime\")\n           .and_then(|v| v.as_str())\n           .unwrap_or(\"C:\\\\Program Files\\\\AutoHotkey\\\\AutoHotkey.exe\");\n       \n       let port = config.config.get(\"port\")\n           .and_then(|v| v.as_i64())\n           .unwrap_or(9005);\n       \n       // Build the scenario config for helsmy adapter\n       let mut scenario_config = serde_json::json!({\n           \"type\": \"ahkdbg\",\n           \"request\": \"launch\",\n           \"program\": program,\n           \"AhkExecutable\": runtime,\n           \"port\": port,\n           \"stopOnEntry\": config.config.get(\"stopOnEntry\").unwrap_or(&serde_json::json!(true)),\n       });\n       \n       // Add args if present\n       if let Some(args) = config.config.get(\"args\") {\n           scenario_config[\"args\"] = args.clone();\n       }\n       \n       Ok(zed::DebugScenario {\n           adapter_name: \"autohotkey\".to_string(),\n           config: scenario_config,\n           build_task: None,\n       })\n   }\n   ```\n2. Ensure proper variable substitution for `${workspaceFolder}` paths",
+        "testStrategy": "Test with various debug.json configurations. Verify program path, runtime path, port, and args are correctly passed to the debug adapter. Test with both absolute and relative paths.",
+        "priority": "medium",
+        "dependencies": [
+          "5"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2025-12-27T01:36:04.955Z"
+      },
+      {
+        "id": "7",
+        "title": "Add error handling and user-friendly messages",
+        "description": "Implement comprehensive error handling for common failure scenarios with clear, actionable error messages for users.",
+        "details": "1. Define custom error types or use string errors with context:\n   - `AHK_NOT_FOUND`: \"AutoHotkey.exe not found at '{path}'. Install AutoHotkey v1 from https://www.autohotkey.com/download/\"\n   - `ADAPTER_DOWNLOAD_FAILED`: \"Failed to download debug adapter: {reason}. Check your internet connection.\"\n   - `PORT_IN_USE`: \"DBGp port {port} is already in use. Try a different port in debug.json.\"\n   - `INVALID_CONFIG`: \"Invalid debug configuration: {details}\"\n\n2. Add validation in `get_dap_binary`:\n   ```rust\n   // Validate AHK runtime exists\n   let runtime_path = PathBuf::from(&runtime);\n   if !runtime_path.exists() {\n       return Err(format!(\n           \"AutoHotkey.exe not found at '{}'. Install AutoHotkey v1 from https://www.autohotkey.com/download/\",\n           runtime\n       ));\n   }\n   \n   // Validate program file exists\n   let program_path = PathBuf::from(&program);\n   if !program_path.exists() {\n       return Err(format!(\"Script file not found: '{}'\", program));\n   }\n   ```\n\n3. Add timeout handling for adapter download\n4. Log errors to help users diagnose issues",
+        "testStrategy": "Test each error scenario: missing AHK runtime, invalid script path, download failure (disconnect internet), port conflict (run two debug sessions on same port). Verify error messages are clear and actionable.",
+        "priority": "medium",
+        "dependencies": [
+          "6"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2025-12-27T01:39:29.311Z"
+      },
+      {
+        "id": "8",
+        "title": "Test locally with dev extension installation",
+        "description": "Perform end-to-end testing of the extension by installing it as a development extension in Zed and debugging a real AutoHotkey script.",
+        "details": "1. Build the extension:\n   ```bash\n   cargo build --release --target wasm32-wasi\n   ```\n2. Install as dev extension in Zed:\n   - Command Palette → \"Extensions: Install Dev Extension\"\n   - Select the project directory\n\n3. Create test AHK script (`test.ahk`):\n   ```autohotkey\n   #NoEnv\n   SetWorkingDir %A_ScriptDir%\n   \n   x := 1\n   y := 2\n   z := x + y  ; Set breakpoint here\n   MsgBox, Result: %z%\n   ```\n\n4. Create `.zed/debug.json`:\n   ```json\n   {\n     \"program\": \"${workspaceFolder}/test.ahk\",\n     \"runtime\": \"C:\\\\Program Files\\\\AutoHotkey\\\\AutoHotkey.exe\",\n     \"stopOnEntry\": true\n   }\n   ```\n\n5. Test debugging features:\n   - Set breakpoint on line 6\n   - Press F5 to start debugging\n   - Verify debugger stops at breakpoint\n   - Test step over/into/out\n   - Inspect variables (x, y, z)\n   - Test continue to completion",
+        "testStrategy": "Manual testing checklist: (1) Breakpoints hit correctly, (2) Step over works, (3) Step into works for function calls, (4) Step out works, (5) Variables panel shows local/global vars, (6) Watch expressions evaluate, (7) Call stack shows frames, (8) Continue runs to next breakpoint or completion.",
+        "priority": "high",
+        "dependencies": [
+          "7"
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": "9",
+        "title": "Write README documentation",
+        "description": "Create comprehensive README.md with installation instructions, prerequisites, configuration options, and troubleshooting guide.",
+        "details": "Create `README.md` with the following sections:\n\n```markdown\n# AutoHotkey Debugger for Zed\n\nDebug AutoHotkey v1 scripts directly in Zed editor.\n\n## Prerequisites\n\n- Windows OS (AutoHotkey limitation)\n- [AutoHotkey v1.1.37+](https://www.autohotkey.com/download/) installed\n- Zed editor\n\n## Installation\n\n1. Open Zed\n2. Command Palette (Ctrl+Shift+P) → \"Extensions: Install Extension\"\n3. Search for \"AutoHotkey Debugger\"\n4. Click Install\n\n## Usage\n\n1. Create `.zed/debug.json` in your project:\n   ```json\n   {\n     \"program\": \"${workspaceFolder}/script.ahk\",\n     \"runtime\": \"C:\\\\Program Files\\\\AutoHotkey\\\\AutoHotkey.exe\"\n   }\n   ```\n2. Set breakpoints in your `.ahk` file\n3. Press F5 to start debugging\n\n## Configuration Options\n\n| Option | Type | Default | Description |\n|--------|------|---------|-------------|\n| program | string | required | Path to .ahk script |\n| runtime | string | auto-detect | Path to AutoHotkey.exe |\n| port | number/string | 9005 | DBGp port or range |\n| stopOnEntry | boolean | true | Pause at first line |\n| args | array | [] | Script arguments |\n\n## Troubleshooting\n\n### \"AutoHotkey.exe not found\"\nInstall AutoHotkey v1 or set the `runtime` path in debug.json.\n\n### \"Port already in use\"\nChange the `port` in debug.json or close other debug sessions.\n\n## Credits\n\nPowered by [helsmy/autohotkey-debug-adapter](https://github.com/helsmy/autohotkey-debug-adapter)\n```",
+        "testStrategy": "Review README for accuracy. Follow installation steps on a clean Zed installation. Verify all configuration options work as documented. Test troubleshooting steps for common errors.",
+        "priority": "medium",
+        "dependencies": [
+          "8"
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": "10",
+        "title": "Prepare for Zed extension registry submission",
+        "description": "Finalize the extension for submission to the Zed extension registry, including all metadata, licensing, and repository setup.",
+        "details": "1. Ensure all metadata in `extension.toml` is complete:\n   ```toml\n   id = \"autohotkey-debugger\"\n   name = \"AutoHotkey Debugger\"\n   version = \"0.1.0\"\n   schema_version = 1\n   authors = [\"Your Name <email@example.com>\"]\n   description = \"Debug AutoHotkey v1 scripts in Zed\"\n   repository = \"https://github.com/YOUR_USERNAME/zed-autohotkey-debugger\"\n   ```\n\n2. Add LICENSE file (MIT recommended for compatibility)\n\n3. Create GitHub repository:\n   - Push all code\n   - Create initial release tag (v0.1.0)\n   - Enable GitHub Actions for CI (optional)\n\n4. Submit to Zed extension registry:\n   - Fork [zed-industries/extensions](https://github.com/zed-industries/extensions)\n   - Add entry to `extensions.toml`:\n     ```toml\n     [autohotkey-debugger]\n     repository = \"https://github.com/YOUR_USERNAME/zed-autohotkey-debugger\"\n     ```\n   - Create pull request\n\n5. Update tree-sitter-autohotkey README to link to this extension",
+        "testStrategy": "Verify extension can be installed from the registry after PR is merged. Test installation on a fresh Zed instance. Verify all features work in the published version.",
+        "priority": "low",
+        "dependencies": [
+          "9"
+        ],
+        "status": "pending",
+        "subtasks": []
+      }
+    ],
+    "metadata": {
+      "version": "1.0.0",
+      "lastModified": "2025-12-27T01:39:29.312Z",
+      "taskCount": 10,
+      "completedCount": 7,
+      "tags": [
+        "master"
+      ]
+    }
+  }
+}
