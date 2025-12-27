@@ -7,3 +7,4 @@ description = "Debug AutoHotkey v1 scripts using helsmy's debug adapter"
 repository = "https://github.com/alfredomtx/zed-autohotkey-debugger"
 
 [debug_adapters.autohotkey]
+schema_path = "debug_adapter_schemas/autohotkey.json"
