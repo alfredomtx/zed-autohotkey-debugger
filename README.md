@@ -1,5 +1,14 @@
 # AutoHotkey Debugger
 
+> **Note:** This extension has been merged into [tree-sitter-autohotkey](https://github.com/alfredomtx/tree-sitter-autohotkey).
+> Install the main **AutoHotkey** extension from the Zed Extensions panel for both syntax highlighting and debugging support.
+
+---
+
+*This repository is archived and no longer maintained.*
+
+---
+
 Debug AutoHotkey v1 scripts in Zed using the Debug Adapter Protocol.
 
 ## Features
